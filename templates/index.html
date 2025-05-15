@@ -3,6 +3,241 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TTN Data Dashboard</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        header {
+            background-color: #064e3b;
+            color: white;
+            padding: 20px 0;
+            text-align: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            margin: 0;
+        }
+        
+        .status-bar {
+            background-color: #e0f2f1;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 20px 0;
+            display: flex;
+            justify-content: space-between;
+        }
+        
+        .data-panel {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background-color: #064e3b;
+            color: white;
+            padding: 10px;
+            text-align: left;
+        }
+        
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+        
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        
+        .last-update {
+            font-style: italic;
+            color: #666;
+            text-align: right;
+        }
+        
+        .refresh-control {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            margin-bottom: 10px;
+        }
+        
+        .refresh-control select {
+            margin-left: 10px;
+            padding: 5px;
+        }
+        
+        /* For mobile screens */
+        @media (max-width: 768px) {
+            table {
+                display: block;
+                overflow-x: auto;
+            }
+            
+            .status-bar {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>TTN Data Dashboard</h1>
+        </div>
+    </header>
+    
+    <div class="container">
+        <div class="status-bar">
+            <div id="connection-status">Loading data...</div>
+            <div class="refresh-control">
+                <label for="refresh-rate">Refresh every:</label>
+                <select id="refresh-rate">
+                    <option value="5000">5 seconds</option>
+                    <option value="10000" selected>10 seconds</option>
+                    <option value="30000">30 seconds</option>
+                    <option value="60000">1 minute</option>
+                </select>
+            </div>
+        </div>
+        
+        <div class="data-panel">
+            <table id="data-table">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Device ID</th>
+                        <th>Temperature</th>
+                        <!-- Add more columns as needed -->
+                    </tr>
+                </thead>
+                <tbody id="data-body">
+                    <!-- Data will be inserted here by JavaScript -->
+                </tbody>
+            </table>
+            <p class="last-update" id="last-update"></p>
+        </div>
+    </div>
+    
+    <script>
+        // Configuration
+        let refreshInterval = 10000; // Default refresh rate in milliseconds
+        let refreshTimer;
+        
+        // DOM elements
+        const dataTableBody = document.getElementById('data-body');
+        const lastUpdateElement = document.getElementById('last-update');
+        const connectionStatus = document.getElementById('connection-status');
+        const refreshRateSelect = document.getElementById('refresh-rate');
+        
+        // Initialize the page
+        document.addEventListener('DOMContentLoaded', () => {
+            // Set up refresh rate control
+            refreshRateSelect.addEventListener('change', (e) => {
+                refreshInterval = parseInt(e.target.value);
+                resetRefreshTimer();
+            });
+            
+            // Load initial data
+            fetchData();
+            
+            // Start refresh timer
+            resetRefreshTimer();
+        });
+        
+        // Reset the refresh timer
+        function resetRefreshTimer() {
+            if (refreshTimer) {
+                clearInterval(refreshTimer);
+            }
+            refreshTimer = setInterval(fetchData, refreshInterval);
+        }
+        
+        // Fetch data from the API
+        function fetchData() {
+            connectionStatus.textContent = "Refreshing...";
+            
+            fetch('/api/data')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP error ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    updateTable(data);
+                    updateLastRefreshTime();
+                    connectionStatus.textContent = `Connected - ${data.length} records available`;
+                })
+                .catch(error => {
+                    console.error('Error fetching data:', error);
+                    connectionStatus.textContent = `Error: ${error.message}`;
+                });
+        }
+        
+        // Update the data table
+        function updateTable(data) {
+            // Clear existing rows
+            dataTableBody.innerHTML = '';
+            
+            // Add new rows
+            if (data.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="3">No data available</td>';
+                dataTableBody.appendChild(row);
+            } else {
+                data.forEach(record => {
+                    const row = document.createElement('tr');
+                    
+                    // Add cells for each column
+                    row.innerHTML = `
+                        <td>${record.time}</td>
+                        <td>${record.device_id}</td>
+                        <td>${record.temperature !== null ? record.temperature : 'N/A'}</td>
+                        <!-- Add more cells as needed -->
+                    `;
+                    
+                    dataTableBody.appendChild(row);
+                });
+            }
+        }
+        
+        // Update the last refresh time
+        function updateLastRefreshTime() {
+            const now = new Date();
+            lastUpdateElement.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        }
+    </script>
+</body>
+</html><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Plant Box Data Dashboard</title>
     <style>
         body {
