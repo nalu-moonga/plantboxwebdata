@@ -13,7 +13,7 @@ app = Flask(__name__)
 
 # Configuration
 TTN_APP_ID = "plant-data@ttn"  # Replace with your TTN app ID
-TTN_API_KEY = "NNSXS.SUFBQH4J3UNWANYVWQRGM4HQ6RRBKWUOJ5OBEKQ.DTGXKCCN7NG66NQYKM3VGUKY7JKQDFP3JC6ZBBKTCLSVQUZJGFQQ"     # Replace with your TTN API key
+TTN_API_KEY = "NJRVVAULP24U7RQRKXEKAVJ4DEPII2WUVRV2HBI"     # Replace with your TTN API key
 BROKER = "nam1.cloud.thethings.network"
 PORT = 1883
 TOPIC = f"v3/{TTN_APP_ID}/devices/+/up"
