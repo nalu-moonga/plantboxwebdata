@@ -1,4 +1,4 @@
-# app.py - Completely revised version
+# app.py - Updated with direct JSON path access
 from flask import Flask, render_template, jsonify
 import paho.mqtt.client as mqtt
 import json
@@ -74,40 +74,35 @@ def on_message(client, userdata, message):
         last_raw_message = payload_str[:500] + "..." if len(payload_str) > 500 else payload_str
         
         # Parse JSON
-        data = json.loads(payload_str)
+        js = json.loads(payload_str)
         
-        # Log message structure
-        logger.info(f"Message structure keys: {list(data.keys())}")
+        # Log the full structure for debugging
+        logger.info(f"Message keys: {list(js.keys())}")
+        if "uplink_message" in js:
+            logger.info(f"Uplink message keys: {list(js['uplink_message'].keys())}")
+            if "decoded_payload" in js["uplink_message"]:
+                logger.info(f"Decoded payload keys: {list(js['uplink_message']['decoded_payload'].keys())}")
         
-        # Extract device info
-        device_id = data.get("end_device_ids", {}).get("device_id", "unknown")
-        logger.info(f"Device ID: {device_id}")
-        
-        # Extract time
-        received_time = data.get("received_at")
-        if received_time:
-            time_obj = parse(received_time).astimezone(pytz.timezone("US/Eastern"))
-            formatted_time = time_obj.strftime("%Y-%m-%d %H:%M:%S")
-        else:
-            formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            logger.warning("No timestamp in message, using current time")
-        
-        # Extract payload
-        if "uplink_message" in data and "decoded_payload" in data["uplink_message"]:
-            decoded = data["uplink_message"]["decoded_payload"]
-            logger.info(f"Decoded payload keys: {list(decoded.keys())}")
+        # Extract direct path values like your original script
+        try:
+            # Extract timestamp and convert to Eastern Time
+            ts = parse(js["received_at"]).astimezone(pytz.timezone("US/Eastern"))
+            formatted_time = ts.strftime("%Y-%m-%d %H:%M:%S")
             
-            # Create record with sensor data - ADJUST FIELD NAMES TO MATCH YOUR DATA!
+            # Extract device ID
+            device_id = js["end_device_ids"]["device_id"]
+            
+            # Extract sensor values directly using the path
+            # This matches your original script approach
             record = {
                 "time": formatted_time,
                 "device_id": device_id,
-                # Try multiple possible field names
-                "temperature": decoded.get("boxTemperature") or decoded.get("temp") or decoded.get("temperature"),
-                "humidity": decoded.get("boxHumidity") or decoded.get("humidity") or decoded.get("hum"),
-                "plantheight": decoded.get("plantHeight") or decoded.get("height") or decoded.get("distance"),
-                "moisture1": decoded.get("moisture1") or decoded.get("soil1"),
-                "moisture2": decoded.get("moisture2") or decoded.get("soil2"),
-                "moisture3": decoded.get("moisture3") or decoded.get("soil3"),
+                "temperature": js['uplink_message']['decoded_payload']['boxTemperature'],
+                "humidity": js['uplink_message']['decoded_payload']['boxHumidity'],
+                "plantheight": js['uplink_message']['decoded_payload']['plantHeight'],
+                "moisture1": js['uplink_message']['decoded_payload']['moisture1'],
+                "moisture2": js['uplink_message']['decoded_payload']['moisture2'],
+                "moisture3": js['uplink_message']['decoded_payload']['moisture3'],
             }
             
             # Add to data collection
@@ -116,13 +111,43 @@ def on_message(client, userdata, message):
             
             processed_message_count += 1
             logger.info(f"Processed data: {record}")
-        else:
-            logger.warning("Message does not contain decoded_payload")
-            logger.info(f"Message content: {last_raw_message}")
+            
+        except KeyError as key_error:
+            # If direct path fails, log the specific missing key
+            logger.warning(f"Missing key in message: {key_error}")
+            logger.info(f"Message structure: {last_raw_message}")
+            
+            # Try a fallback approach with safer .get() method
+            try:
+                # Get the decoded payload
+                decoded = js.get("uplink_message", {}).get("decoded_payload", {})
+                
+                # Create record with safer approach
+                record = {
+                    "time": ts.strftime("%Y-%m-%d %H:%M:%S"),
+                    "device_id": js.get("end_device_ids", {}).get("device_id", "unknown"),
+                    "temperature": decoded.get("boxTemperature"),
+                    "humidity": decoded.get("boxHumidity"),
+                    "plantheight": decoded.get("plantHeight"),
+                    "moisture1": decoded.get("moisture1"),
+                    "moisture2": decoded.get("moisture2"),
+                    "moisture3": decoded.get("moisture3"),
+                }
+                
+                # Add to data collection
+                with data_lock:
+                    sensor_data.appendleft(record)
+                
+                processed_message_count += 1
+                logger.info(f"Processed data (fallback method): {record}")
+            except Exception as fallback_error:
+                # If fallback also fails, log that error
+                logger.error(f"Fallback processing also failed: {fallback_error}")
         
     except Exception as e:
         last_exception = e
         logger.error(f"Error processing message: {e}", exc_info=True)
+        logger.error(f"Raw payload: {message.payload}")
 
 # MQTT client thread
 def mqtt_client_thread():
@@ -224,3 +249,7 @@ start_mqtt_thread()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+else:
+    # For production with Gunicorn
+    # Start the background thread when loaded by Gunicorn
+    start_mqtt_thread()
