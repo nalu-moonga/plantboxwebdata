@@ -1,5 +1,6 @@
-# app.py - Fixed version for Render
-from flask import Flask, render_template, jsonify, request
+# app.py - Completely revised version
+from flask import Flask, render_template, jsonify
+import paho.mqtt.client as mqtt
 import json
 import time
 import threading
@@ -7,17 +8,20 @@ import logging
 from datetime import datetime
 from dateutil.parser import parse
 import pytz
-import paho.mqtt.client as mqtt
+import collections
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('plantbox.log')
+    ]
+)
 logger = logging.getLogger("plantbox")
 
 app = Flask(__name__)
-
-# Data storage - GLOBAL to ensure it's accessible across requests
-GLOBAL_SENSOR_DATA = []
-data_lock = threading.Lock()
 
 # Configuration
 TTN_APP_ID = "plant-data@ttn"
@@ -26,72 +30,161 @@ BROKER = "nam1.cloud.thethings.network"
 PORT = 1883
 TOPIC = f"v3/{TTN_APP_ID}/devices/+/up"
 
+# Global variables
+mqtt_connected = False
+last_raw_message = None
+last_exception = None
+received_message_count = 0
+processed_message_count = 0
+
+# Data storage
+MAX_RECORDS = 100
+data_lock = threading.Lock()
+sensor_data = collections.deque(maxlen=MAX_RECORDS)
+
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc):
+    global mqtt_connected
     if rc == 0:
-        logger.info("Connected to MQTT broker")
-        client.subscribe(TOPIC)
+        logger.info(f"Connected to MQTT broker: {BROKER}")
+        result, mid = client.subscribe(TOPIC, qos=1)
+        logger.info(f"Subscribed to {TOPIC}, result={result}, mid={mid}")
+        mqtt_connected = True
     else:
-        logger.error(f"Failed to connect with code {rc}")
+        logger.error(f"Failed to connect to MQTT broker, code={rc}")
+        mqtt_connected = False
+
+def on_disconnect(client, userdata, rc):
+    global mqtt_connected
+    logger.warning(f"Disconnected from MQTT broker, code={rc}")
+    mqtt_connected = False
+
+def on_subscribe(client, userdata, mid, granted_qos):
+    logger.info(f"Subscription confirmed, mid={mid}, qos={granted_qos}")
 
 def on_message(client, userdata, message):
+    global last_raw_message, last_exception, received_message_count, processed_message_count
+    
+    received_message_count += 1
+    logger.info(f"MQTT message #{received_message_count} received on topic: {message.topic}")
+    
     try:
-        # Parse the message
-        payload_str = message.payload.decode()
-        js = json.loads(payload_str)
+        # Store raw message for debugging
+        payload_str = message.payload.decode('utf-8')
+        last_raw_message = payload_str[:500] + "..." if len(payload_str) > 500 else payload_str
         
-        # Log the receipt
-        logger.info(f"Message received on topic: {message.topic}")
+        # Parse JSON
+        data = json.loads(payload_str)
         
-        # Extract data from payload
-        ts = parse(js["received_at"]).astimezone(pytz.timezone("US/Eastern"))
-        device_id = js["end_device_ids"]["device_id"]
-        decoded = js["uplink_message"]["decoded_payload"]
+        # Log message structure
+        logger.info(f"Message structure keys: {list(data.keys())}")
         
-        # Create record
-        record = {
-            "time": ts.strftime("%Y-%m-%d %H:%M:%S"),
-            "device_id": device_id,
-            "temperature": decoded.get("boxTemperature"),
-            "humidity": decoded.get("boxHumidity"),
-            "plantheight": decoded.get("plantHeight"),
-            "moisture1": decoded.get("moisture1"),
-            "moisture2": decoded.get("moisture2"),
-            "moisture3": decoded.get("moisture3")
-        }
+        # Extract device info
+        device_id = data.get("end_device_ids", {}).get("device_id", "unknown")
+        logger.info(f"Device ID: {device_id}")
         
-        # Add to global data - with lock for thread safety
-        with data_lock:
-            GLOBAL_SENSOR_DATA.insert(0, record)
+        # Extract time
+        received_time = data.get("received_at")
+        if received_time:
+            time_obj = parse(received_time).astimezone(pytz.timezone("US/Eastern"))
+            formatted_time = time_obj.strftime("%Y-%m-%d %H:%M:%S")
+        else:
+            formatted_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            logger.warning("No timestamp in message, using current time")
+        
+        # Extract payload
+        if "uplink_message" in data and "decoded_payload" in data["uplink_message"]:
+            decoded = data["uplink_message"]["decoded_payload"]
+            logger.info(f"Decoded payload keys: {list(decoded.keys())}")
             
-            # Keep only the most recent 100 records
-            if len(GLOBAL_SENSOR_DATA) > 100:
-                GLOBAL_SENSOR_DATA.pop()
-        
-        logger.info(f"Data added: {record}")
+            # Create record with sensor data - ADJUST FIELD NAMES TO MATCH YOUR DATA!
+            record = {
+                "time": formatted_time,
+                "device_id": device_id,
+                # Try multiple possible field names
+                "temperature": decoded.get("boxTemperature") or decoded.get("temp") or decoded.get("temperature"),
+                "humidity": decoded.get("boxHumidity") or decoded.get("humidity") or decoded.get("hum"),
+                "plantheight": decoded.get("plantHeight") or decoded.get("height") or decoded.get("distance"),
+                "moisture1": decoded.get("moisture1") or decoded.get("soil1"),
+                "moisture2": decoded.get("moisture2") or decoded.get("soil2"),
+                "moisture3": decoded.get("moisture3") or decoded.get("soil3"),
+            }
+            
+            # Add to data collection
+            with data_lock:
+                sensor_data.appendleft(record)
+            
+            processed_message_count += 1
+            logger.info(f"Processed data: {record}")
+        else:
+            logger.warning("Message does not contain decoded_payload")
+            logger.info(f"Message content: {last_raw_message}")
         
     except Exception as e:
-        logger.error(f"Error processing message: {e}")
+        last_exception = e
+        logger.error(f"Error processing message: {e}", exc_info=True)
 
-# Start MQTT client in a non-blocking way
-def start_mqtt_client():
-    try:
-        client = mqtt.Client("PlantBoxClient")
-        client.username_pw_set(TTN_APP_ID, password=TTN_API_KEY)
-        client.on_connect = on_connect
-        client.on_message = on_message
-        
-        # Connect and start in non-blocking mode
-        client.connect(BROKER, PORT, 60)
-        client.loop_start()
-        
-        logger.info("MQTT client started")
-        return client
-    except Exception as e:
-        logger.error(f"Error starting MQTT client: {e}")
-        return None
+# MQTT client thread
+def mqtt_client_thread():
+    client = mqtt.Client("PlantBoxClient")
+    client.username_pw_set(TTN_APP_ID, password=TTN_API_KEY)
+    client.on_connect = on_connect
+    client.on_message = on_message
+    client.on_disconnect = on_disconnect
+    client.on_subscribe = on_subscribe
+    
+    while True:
+        try:
+            if not mqtt_connected:
+                logger.info(f"Connecting to MQTT broker {BROKER}:{PORT}...")
+                client.connect(BROKER, PORT, 60)
+                
+            client.loop_start()
+            
+            # Keep checking connection
+            while True:
+                time.sleep(5)
+                if not mqtt_connected:
+                    logger.warning("MQTT connection lost, reconnecting...")
+                    try:
+                        client.loop_stop()
+                    except:
+                        pass
+                    break
+                    
+        except Exception as e:
+            logger.error(f"MQTT error: {e}", exc_info=True)
+            try:
+                client.loop_stop()
+            except:
+                pass
+            
+            # Wait before retry
+            logger.info("Waiting 10 seconds before reconnect...")
+            time.sleep(10)
 
-# Routes
+# Debug endpoint
+@app.route('/debug')
+def debug():
+    with data_lock:
+        data_count = len(sensor_data)
+        latest_data = list(sensor_data)[:5] if sensor_data else []
+    
+    debug_info = {
+        'mqtt_connected': mqtt_connected,
+        'data_count': data_count,
+        'latest_data': latest_data,
+        'last_raw_message': last_raw_message,
+        'last_exception': str(last_exception) if last_exception else None,
+        'server_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        'topic': TOPIC,
+        'received_messages': received_message_count,
+        'processed_messages': processed_message_count
+    }
+    
+    return jsonify(debug_info)
+
+# Standard routes
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -99,90 +192,35 @@ def index():
 @app.route('/api/data')
 def get_data():
     with data_lock:
-        # Make a copy to avoid thread issues
-        data_copy = GLOBAL_SENSOR_DATA.copy()
-    return jsonify(data_copy)
+        data_list = list(sensor_data)
+    return jsonify(data_list)
 
-@app.route('/inject-test-data')
-def inject_test_data():
-    try:
-        # Create test data
-        record = {
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "device_id": "plant-box-featherboard",
-            "temperature": 22.0,
-            "humidity": 57.0,
-            "plantheight": 7.7,
-            "moisture1": 49.4,
-            "moisture2": 94.7,
-            "moisture3": 0.0
-        }
-        
-        # Add to global data
-        with data_lock:
-            GLOBAL_SENSOR_DATA.insert(0, record)
-        
-        logger.info(f"Test data added: {record}")
-        return jsonify({"success": True, "message": "Test data added"})
-    except Exception as e:
-        logger.error(f"Error adding test data: {e}")
-        return jsonify({"success": False, "error": str(e)})
-
+# Status route
 @app.route('/status')
 def status():
     with data_lock:
-        data_count = len(GLOBAL_SENSOR_DATA)
+        data_count = len(sensor_data)
     
     return jsonify({
+        'mqtt_connected': mqtt_connected,
         'data_count': data_count,
+        'received_messages': received_message_count,
+        'processed_messages': processed_message_count,
         'server_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
-# -----------------------------
-# New function to add initial test data
-# -----------------------------
-def add_initial_test_data():
-    record = {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "device_id": "plant-box-featherboard",
-        "temperature": 22.0,
-        "humidity": 57.0,
-        "plantheight": 7.7,
-        "moisture1": 49.4,
-        "moisture2": 94.7,
-        "moisture3": 0.0
-    }
-    
-    # Add to global data
-    with data_lock:
-        GLOBAL_SENSOR_DATA.insert(0, record)
-    
-    logger.info(f"Initial test data added: {record}")
+# Start MQTT client thread
+mqtt_thread = None
 
-# -----------------------------
-# Initialization for Gunicorn
-# -----------------------------
-mqtt_client = None
+def start_mqtt_thread():
+    global mqtt_thread
+    if mqtt_thread is None or not mqtt_thread.is_alive():
+        mqtt_thread = threading.Thread(target=mqtt_client_thread, daemon=True)
+        mqtt_thread.start()
+        logger.info("MQTT client thread started")
 
-# This function will be called when the app is initialized by Gunicorn
-def initialize_app():
-    global mqtt_client
-    
-    # Add test data
-    add_initial_test_data()
-    
-    # Start MQTT client
-    mqtt_client = start_mqtt_client()
+# Start thread
+start_mqtt_thread()
 
-# Only start when used with Gunicorn (not in development mode)
-if __name__ != '__main__':
-    initialize_app()
-
-# For development mode
 if __name__ == '__main__':
-    # Add test data and start MQTT client
-    add_initial_test_data()
-    mqtt_client = start_mqtt_client()
-    
-    # Run Flask development server
     app.run(debug=True, host='0.0.0.0', port=5000)
