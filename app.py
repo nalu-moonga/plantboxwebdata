@@ -7,14 +7,17 @@ import logging
 from datetime import datetime
 from dateutil.parser import parse
 import pytz
-import collections
 import paho.mqtt.client as mqtt
 
-# Configure logging - more minimal to prevent buffer issues
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("plantbox")
 
 app = Flask(__name__)
+
+# Data storage - GLOBAL to ensure it's accessible across requests
+GLOBAL_SENSOR_DATA = []
+data_lock = threading.Lock()
 
 # Configuration
 TTN_APP_ID = "plant-data@ttn"
@@ -22,10 +25,6 @@ TTN_API_KEY = "NNSXS.SUFBQH4J3UNWANYVWQRGM4HQ6RRBKWUOJ5OBEKQ.DTGXKCCN7NG66NQYKM3
 BROKER = "nam1.cloud.thethings.network"
 PORT = 1883
 TOPIC = f"v3/{TTN_APP_ID}/devices/+/up"
-
-# Data storage - GLOBAL to ensure it's accessible across requests
-GLOBAL_SENSOR_DATA = []
-data_lock = threading.Lock()
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc):
@@ -70,13 +69,6 @@ def on_message(client, userdata, message):
                 GLOBAL_SENSOR_DATA.pop()
         
         logger.info(f"Data added: {record}")
-        
-        # Also save to a file as backup
-        try:
-            with open('sensor_data.json', 'w') as f:
-                json.dump(GLOBAL_SENSOR_DATA, f)
-        except Exception as e:
-            logger.error(f"Error saving to file: {e}")
         
     except Exception as e:
         logger.error(f"Error processing message: {e}")
@@ -146,11 +138,51 @@ def status():
         'server_time': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     })
 
-# Start MQTT client when app starts
-mqtt_client = start_mqtt_client()
+# -----------------------------
+# New function to add initial test data
+# -----------------------------
+def add_initial_test_data():
+    record = {
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "device_id": "plant-box-featherboard",
+        "temperature": 22.0,
+        "humidity": 57.0,
+        "plantheight": 7.7,
+        "moisture1": 49.4,
+        "moisture2": 94.7,
+        "moisture3": 0.0
+    }
+    
+    # Add to global data
+    with data_lock:
+        GLOBAL_SENSOR_DATA.insert(0, record)
+    
+    logger.info(f"Initial test data added: {record}")
 
-# Add test data for initial state
-inject_test_data()
+# -----------------------------
+# Initialization for Gunicorn
+# -----------------------------
+mqtt_client = None
 
+# This function will be called when the app is initialized by Gunicorn
+def initialize_app():
+    global mqtt_client
+    
+    # Add test data
+    add_initial_test_data()
+    
+    # Start MQTT client
+    mqtt_client = start_mqtt_client()
+
+# Only start when used with Gunicorn (not in development mode)
+if __name__ != '__main__':
+    initialize_app()
+
+# For development mode
 if __name__ == '__main__':
+    # Add test data and start MQTT client
+    add_initial_test_data()
+    mqtt_client = start_mqtt_client()
+    
+    # Run Flask development server
     app.run(debug=True, host='0.0.0.0', port=5000)
