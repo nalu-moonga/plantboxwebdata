@@ -1,5 +1,5 @@
 # app.py - Updated with direct JSON path access
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 import paho.mqtt.client as mqtt
 import json
 import time
@@ -37,10 +37,10 @@ last_exception = None
 received_message_count = 0
 processed_message_count = 0
 
-# Data storage
+# Data storage - CHANGED from deque to list for better persistence
 MAX_RECORDS = 100
 data_lock = threading.Lock()
-sensor_data = collections.deque(maxlen=MAX_RECORDS)
+SENSOR_DATA = []  # Global list instead of deque
 
 # MQTT callbacks
 def on_connect(client, userdata, flags, rc):
@@ -63,7 +63,7 @@ def on_subscribe(client, userdata, mid, granted_qos):
     logger.info(f"Subscription confirmed, mid={mid}, qos={granted_qos}")
 
 def on_message(client, userdata, message):
-    global last_raw_message, last_exception, received_message_count, processed_message_count
+    global last_raw_message, last_exception, received_message_count, processed_message_count, SENSOR_DATA
     
     received_message_count += 1
     logger.info(f"MQTT message #{received_message_count} received on topic: {message.topic}")
@@ -105,9 +105,11 @@ def on_message(client, userdata, message):
                 "moisture3": js['uplink_message']['decoded_payload']['moisture3'],
             }
             
-            # Add to data collection
+            # Add to data collection - CHANGED to use global list
             with data_lock:
-                sensor_data.appendleft(record)
+                SENSOR_DATA.insert(0, record)  # Add to beginning of list
+                if len(SENSOR_DATA) > MAX_RECORDS:
+                    SENSOR_DATA.pop()  # Remove oldest if we exceed limit
             
             processed_message_count += 1
             logger.info(f"Processed data: {record}")
@@ -134,9 +136,11 @@ def on_message(client, userdata, message):
                     "moisture3": decoded.get("moisture3"),
                 }
                 
-                # Add to data collection
+                # Add to data collection - CHANGED to use global list
                 with data_lock:
-                    sensor_data.appendleft(record)
+                    SENSOR_DATA.insert(0, record)  # Add to beginning of list
+                    if len(SENSOR_DATA) > MAX_RECORDS:
+                        SENSOR_DATA.pop()  # Remove oldest if we exceed limit
                 
                 processed_message_count += 1
                 logger.info(f"Processed data (fallback method): {record}")
@@ -188,12 +192,42 @@ def mqtt_client_thread():
             logger.info("Waiting 10 seconds before reconnect...")
             time.sleep(10)
 
+# NEW ENDPOINT: Add test data manually
+@app.route('/inject-test-data')
+def inject_test_data():
+    global SENSOR_DATA
+    
+    try:
+        # Create test data with current time
+        test_data = {
+            "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "device_id": "plant-box-featherboard",
+            "temperature": 22.0,
+            "humidity": 57.0,
+            "plantheight": 7.7,
+            "moisture1": 49.4,
+            "moisture2": 94.7,
+            "moisture3": 0.0
+        }
+        
+        # Add to global list
+        with data_lock:
+            SENSOR_DATA.insert(0, test_data)
+            if len(SENSOR_DATA) > MAX_RECORDS:
+                SENSOR_DATA.pop()
+        
+        logger.info(f"Test data injected: {test_data}")
+        return jsonify({"success": True, "message": "Test data injected"})
+    except Exception as e:
+        logger.error(f"Error injecting test data: {e}")
+        return jsonify({"error": str(e)})
+
 # Debug endpoint
 @app.route('/debug')
 def debug():
     with data_lock:
-        data_count = len(sensor_data)
-        latest_data = list(sensor_data)[:5] if sensor_data else []
+        data_count = len(SENSOR_DATA)
+        latest_data = SENSOR_DATA[:5] if SENSOR_DATA else []
     
     debug_info = {
         'mqtt_connected': mqtt_connected,
@@ -217,14 +251,14 @@ def index():
 @app.route('/api/data')
 def get_data():
     with data_lock:
-        data_list = list(sensor_data)
+        data_list = SENSOR_DATA.copy()  # Make a copy for thread safety
     return jsonify(data_list)
 
 # Status route
 @app.route('/status')
 def status():
     with data_lock:
-        data_count = len(sensor_data)
+        data_count = len(SENSOR_DATA)
     
     return jsonify({
         'mqtt_connected': mqtt_connected,
@@ -243,6 +277,29 @@ def start_mqtt_thread():
         mqtt_thread = threading.Thread(target=mqtt_client_thread, daemon=True)
         mqtt_thread.start()
         logger.info("MQTT client thread started")
+
+# Add some initial test data
+def add_initial_test_data():
+    global SENSOR_DATA
+    
+    # Create test data
+    test_data = {
+        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "device_id": "plant-box-featherboard",
+        "temperature": 22.0,
+        "humidity": 57.0,
+        "plantheight": 7.7,
+        "moisture1": 49.4,
+        "moisture2": 94.7,
+        "moisture3": 0.0
+    }
+    
+    # Add to global list
+    SENSOR_DATA.insert(0, test_data)
+    logger.info(f"Initial test data added: {test_data}")
+
+# Add initial data
+add_initial_test_data()
 
 # Start thread
 start_mqtt_thread()
