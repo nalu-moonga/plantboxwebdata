@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TTN Data Dashboard</title>
+    <title>Plant Box Data Dashboard</title>
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -91,6 +91,22 @@
             padding: 5px;
         }
         
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 5px;
+        }
+        
+        .status-connected {
+            background-color: #10b981;
+        }
+        
+        .status-disconnected {
+            background-color: #ef4444;
+        }
+        
         /* For mobile screens */
         @media (max-width: 768px) {
             table {
@@ -107,7 +123,7 @@
 <body>
     <header>
         <div class="container">
-            <h1>TTN Data Dashboard</h1>
+            <h1>🌱 Plant Box Data Dashboard 🌿</h1>
         </div>
     </header>
     
@@ -131,8 +147,12 @@
                     <tr>
                         <th>Time</th>
                         <th>Device ID</th>
-                        <th>Temperature</th>
-                        <!-- Add more columns as needed -->
+                        <th>Temperature (°C)</th>
+                        <th>Humidity (%)</th>
+                        <th>Plant Height (cm)</th>
+                        <th>Moisture 1</th>
+                        <th>Moisture 2</th>
+                        <th>Moisture 3</th>
                     </tr>
                 </thead>
                 <tbody id="data-body">
@@ -164,9 +184,12 @@
             
             // Load initial data
             fetchData();
+            checkStatus();
             
-            // Start refresh timer
+            // Start refresh timers
             resetRefreshTimer();
+            // Check status more frequently
+            setInterval(checkStatus, 5000);
         });
         
         // Reset the refresh timer
@@ -177,10 +200,29 @@
             refreshTimer = setInterval(fetchData, refreshInterval);
         }
         
+        // Check server status
+        function checkStatus() {
+            fetch('/status')
+                .then(response => response.json())
+                .then(status => {
+                    const statusClass = status.mqtt_connected ? 'status-connected' : 'status-disconnected';
+                    const statusText = status.mqtt_connected ? 'Connected to MQTT' : 'Disconnected from MQTT';
+                    
+                    connectionStatus.innerHTML = `
+                        <span class="status-indicator ${statusClass}"></span>
+                        ${statusText} - ${status.data_count} records available
+                    `;
+                })
+                .catch(error => {
+                    connectionStatus.innerHTML = `
+                        <span class="status-indicator status-disconnected"></span>
+                        Server error: ${error.message}
+                    `;
+                });
+        }
+        
         // Fetch data from the API
         function fetchData() {
-            connectionStatus.textContent = "Refreshing...";
-            
             fetch('/api/data')
                 .then(response => {
                     if (!response.ok) {
@@ -191,11 +233,13 @@
                 .then(data => {
                     updateTable(data);
                     updateLastRefreshTime();
-                    connectionStatus.textContent = `Connected - ${data.length} records available`;
                 })
                 .catch(error => {
                     console.error('Error fetching data:', error);
-                    connectionStatus.textContent = `Error: ${error.message}`;
+                    connectionStatus.innerHTML = `
+                        <span class="status-indicator status-disconnected"></span>
+                        Data fetch error: ${error.message}
+                    `;
                 });
         }
         
@@ -207,7 +251,7 @@
             // Add new rows
             if (data.length === 0) {
                 const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="3">No data available</td>';
+                row.innerHTML = '<td colspan="8">No data available yet. Waiting for sensor readings...</td>';
                 dataTableBody.appendChild(row);
             } else {
                 data.forEach(record => {
@@ -217,8 +261,12 @@
                     row.innerHTML = `
                         <td>${record.time}</td>
                         <td>${record.device_id}</td>
-                        <td>${record.temperature !== null ? record.temperature : 'N/A'}</td>
-                        <!-- Add more cells as needed -->
+                        <td>${record.temperature !== null ? record.temperature.toFixed(1) : 'N/A'}</td>
+                        <td>${record.humidity !== null ? record.humidity.toFixed(1) : 'N/A'}</td>
+                        <td>${record.plantheight !== null ? record.plantheight.toFixed(1) : 'N/A'}</td>
+                        <td>${record.moisture1 !== null ? record.moisture1 : 'N/A'}</td>
+                        <td>${record.moisture2 !== null ? record.moisture2 : 'N/A'}</td>
+                        <td>${record.moisture3 !== null ? record.moisture3 : 'N/A'}</td>
                     `;
                     
                     dataTableBody.appendChild(row);
