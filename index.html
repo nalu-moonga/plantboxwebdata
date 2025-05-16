@@ -3,38 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Plant Box Data Dashboard</title>
+    <title>TTN Real-Time Dashboard</title>
+    <!-- Include the MQTT.js client library from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
     <style>
+        :root {
+            --dark-green: #1a5e1a;
+            --medium-green: #2e8b57;
+            --light-green: #90ee90;
+            --off-white: #f8f8f8;
+        }
+        
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--off-white);
+            color: #333;
             margin: 0;
             padding: 0;
-            background-color: #f5f5f5;
-            color: #333;
-        }
-        
-        header {
-            background-color: #064e3b;
-            color: white;
-            padding: 20px 0;
-            text-align: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        
-        .header-content {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .plant-icon {
-            font-size: 1.8rem;
-            margin: 0 10px;
-        }
-        
-        h1 {
-            margin: 0;
-            font-size: 1.8rem;
+            min-height: 100vh;
         }
         
         .container {
@@ -43,34 +29,115 @@
             padding: 20px;
         }
         
-        .status-bar {
-            background-color: #e0f2f1;
-            border-radius: 5px;
-            padding: 10px 15px;
-            margin: 20px 0;
+        header {
+            background-color: var(--dark-green);
+            color: white;
+            padding: 20px;
+            border-radius: 8px 8px 0 0;
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        
+        .data-section {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .control-panel {
             display: flex;
             justify-content: space-between;
             align-items: center;
+            margin-bottom: 20px;
         }
         
-        .data-panel {
-            background-color: white;
-            border-radius: 5px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            padding: 20px;
+        .connection-form {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
             margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        label {
+            font-size: 0.9em;
+            margin-bottom: 5px;
+            color: var(--dark-green);
+        }
+        
+        input {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: var(--medium-green);
+            box-shadow: 0 0 0 2px rgba(46, 139, 87, 0.2);
+        }
+        
+        .btn {
+            background-color: var(--medium-green);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background-color 0.3s;
+        }
+        
+        .btn:hover {
+            background-color: var(--dark-green);
+        }
+        
+        .btn-secondary {
+            background-color: white;
+            color: var(--dark-green);
+            border: 2px solid var(--medium-green);
+        }
+        
+        .btn-secondary:hover {
+            background-color: var(--light-green);
+            color: var(--dark-green);
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: #bd2130;
         }
         
         table {
             width: 100%;
             border-collapse: collapse;
+            margin-top: 20px;
         }
         
         th {
-            background-color: #064e3b;
+            background-color: var(--medium-green);
             color: white;
-            padding: 10px;
             text-align: left;
+            padding: 12px;
+        }
+        
+        tr:nth-child(even) {
+            background-color: rgba(46, 139, 87, 0.1);
         }
         
         td {
@@ -78,275 +145,379 @@
             border-bottom: 1px solid #ddd;
         }
         
-        tr:nth-child(even) {
-            background-color: #f9f9f9;
-        }
-        
-        tr:hover {
-            background-color: #f1f1f1;
-        }
-        
-        .last-update {
-            font-style: italic;
+        .timestamp {
+            font-size: 0.9em;
             color: #666;
-            text-align: right;
-            margin-top: 10px;
         }
         
-        .button-group {
-            display: flex;
-            gap: 10px;
-            align-items: center;
-        }
-        
-        .button {
-            background-color: #064e3b;
-            color: white;
-            border: none;
-            padding: 8px 12px;
-            border-radius: 4px;
-            cursor: pointer;
-            text-decoration: none;
-            font-size: 14px;
-        }
-        
-        .refresh-control {
+        .status {
             display: flex;
             align-items: center;
-            margin-left: 15px;
+            gap: 8px;
         }
         
-        .refresh-control select {
-            margin-left: 10px;
-            padding: 5px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-        
-        .loading-spinner {
-            display: inline-block;
-            width: 16px;
-            height: 16px;
-            border: 3px solid rgba(0,0,0,0.1);
+        .status-indicator {
+            width: 10px;
+            height: 10px;
             border-radius: 50%;
-            border-top-color: #064e3b;
-            animation: spin 1s ease-in-out infinite;
-            margin-right: 10px;
         }
         
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .connected {
+            background-color: #4CAF50;
         }
         
-        .loading {
-            display: flex;
-            align-items: center;
+        .disconnected {
+            background-color: #F44336;
         }
         
-        /* For mobile screens */
+        .connecting {
+            background-color: #FFC107;
+        }
+        
+        footer {
+            background-color: var(--dark-green);
+            color: white;
+            text-align: center;
+            padding: 15px;
+            border-radius: 0 0 8px 8px;
+            margin-top: 20px;
+        }
+        
+        #data-count {
+            font-weight: bold;
+            margin-left: 10px;
+        }
+        
+        .notification {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        
+        .notification-success {
+            background-color: rgba(76, 175, 80, 0.1);
+            border: 1px solid #4CAF50;
+            color: #2e7d32;
+        }
+        
+        .notification-error {
+            background-color: rgba(244, 67, 54, 0.1);
+            border: 1px solid #F44336;
+            color: #c62828;
+        }
+        
+        /* Responsive styles */
         @media (max-width: 768px) {
-            .status-bar {
+            .control-panel {
                 flex-direction: column;
                 align-items: flex-start;
             }
             
-            .button-group {
+            .status {
                 margin-top: 10px;
             }
             
-            table {
-                display: block;
-                overflow-x: auto;
+            .connection-form {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .form-group {
+                width: 100%;
             }
         }
     </style>
 </head>
 <body>
-    <header>
-        <div class="header-content">
-            <span class="plant-icon">🌱</span>
-            <h1>Plant Box Data Dashboard</h1>
-            <span class="plant-icon">🌿</span>
-        </div>
-    </header>
-    
     <div class="container">
-        <div class="status-bar">
-            <div id="data-status" class="loading">
-                <div class="loading-spinner"></div>
-                <span>Loading data...</span>
-            </div>
-            <div class="button-group">
-                <button onclick="injectTestData()" class="button">Add Test Data</button>
-                <button onclick="refreshData()" class="button">Refresh Data</button>
-                <div class="refresh-control">
-                    <label for="refresh-rate">Auto-refresh:</label>
-                    <select id="refresh-rate" onchange="setRefreshRate()">
-                        <option value="0">Off</option>
-                        <option value="5000">5 seconds</option>
-                        <option value="10000" selected>10 seconds</option>
-                        <option value="30000">30 seconds</option>
-                        <option value="60000">1 minute</option>
+        <header>
+            <h1>TTN Real-Time Dashboard</h1>
+        </header>
+        
+        <div class="data-section">
+            <div id="notification" class="notification"></div>
+            
+            <div class="connection-form">
+                <div class="form-group">
+                    <label for="app-id">Application ID</label>
+                    <input type="text" id="app-id" placeholder="yourAppHere@ttn">
+                </div>
+                <div class="form-group">
+                    <label for="api-key">API Key</label>
+                    <input type="password" id="api-key" placeholder="Enter your TTN API key">
+                </div>
+                <div class="form-group">
+                    <label for="region">Region</label>
+                    <select id="region">
+                        <option value="nam1.cloud.thethings.network">nam1 (North America)</option>
+                        <option value="eu1.cloud.thethings.network">eu1 (Europe)</option>
+                        <option value="au1.cloud.thethings.network">au1 (Australia)</option>
+                        <option value="as1.cloud.thethings.network">as1 (Asia)</option>
                     </select>
                 </div>
+                <div class="form-group" style="justify-content: flex-end;">
+                    <button id="connect-btn" class="btn">Connect to TTN</button>
+                </div>
+            </div>
+            
+            <div class="control-panel">
+                <div>
+                    <button id="clear-btn" class="btn btn-secondary">Clear Data</button>
+                    <button id="disconnect-btn" class="btn btn-danger" disabled>Disconnect</button>
+                </div>
+                <div class="status">
+                    <div id="status-indicator" class="status-indicator disconnected"></div>
+                    <span id="status-text">Disconnected</span>
+                    <span id="data-count">(0 records)</span>
+                </div>
+            </div>
+            
+            <div id="table-container">
+                <table id="data-table">
+                    <thead>
+                        <tr>
+                            <th>Timestamp</th>
+                            <th>Device ID</th>
+                            <th>Data 1</th>
+                            <th>Data 2</th>
+                            <th>Data 3</th>
+                            <th>Data 4</th>
+                            <th>Data 5</th>
+                            <th>Data 6</th>
+                        </tr>
+                    </thead>
+                    <tbody id="data-body">
+                        <tr>
+                            <td colspan="8" style="text-align: center;">No data available. Please connect to TTN.</td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
         
-        <div class="data-panel">
-            <table id="data-table">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Device ID</th>
-                        <th>Temperature (°C)</th>
-                        <th>Humidity (%)</th>
-                        <th>Plant Height (cm)</th>
-                        <th>Moisture 1</th>
-                        <th>Moisture 2</th>
-                        <th>Moisture 3</th>
-                    </tr>
-                </thead>
-                <tbody id="data-body">
-                    <!-- Data will be inserted here by JavaScript -->
-                </tbody>
-            </table>
-            <p class="last-update" id="last-update"></p>
-        </div>
+        <footer>
+            &copy; 2025 TTN Real-Time Dashboard
+        </footer>
     </div>
-    
+
     <script>
-        // Global variables
-        let refreshTimer;
-        let refreshInterval = 10000; // Default refresh rate in milliseconds
-        
         // DOM elements
-        const dataTable = document.getElementById('data-table');
-        const dataTableBody = document.getElementById('data-body');
-        const dataStatus = document.getElementById('data-status');
-        const lastUpdateElement = document.getElementById('last-update');
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const clearBtn = document.getElementById('clear-btn');
+        const appIdInput = document.getElementById('app-id');
+        const apiKeyInput = document.getElementById('api-key');
+        const regionSelect = document.getElementById('region');
+        const statusIndicator = document.getElementById('status-indicator');
+        const statusText = document.getElementById('status-text');
+        const dataCount = document.getElementById('data-count');
+        const dataBody = document.getElementById('data-body');
+        const notification = document.getElementById('notification');
         
-        // Initialize the page
-        document.addEventListener('DOMContentLoaded', function() {
-            // Load initial data
-            refreshData();
-            
-            // Start refresh timer
-            setRefreshRate();
-        });
+        // Data storage
+        let dataEntries = [];
+        let client = null;
         
-        // Set refresh rate based on dropdown
-        function setRefreshRate() {
-            const selectElement = document.getElementById('refresh-rate');
-            refreshInterval = parseInt(selectElement.value);
+        // Show notification
+        function showNotification(message, type) {
+            notification.textContent = message;
+            notification.className = `notification notification-${type}`;
+            notification.style.display = 'block';
             
-            // Clear existing timer
-            if (refreshTimer) {
-                clearInterval(refreshTimer);
-                refreshTimer = null;
-            }
-            
-            // Start new timer if not set to "Off"
-            if (refreshInterval > 0) {
-                refreshTimer = setInterval(refreshData, refreshInterval);
-            }
+            setTimeout(() => {
+                notification.style.display = 'none';
+            }, 5000);
         }
         
-        // Fetch data from the API
-        function refreshData() {
-            // Show loading indicator
-            dataStatus.innerHTML = '<div class="loading-spinner"></div><span>Refreshing data...</span>';
-            dataStatus.className = 'loading';
-            
-            fetch('/api/data')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    updateTable(data);
-                    updateDataStatus(data.length);
-                    updateLastRefreshTime();
-                })
-                .catch(error => {
-                    console.error('Error fetching data:', error);
-                    dataStatus.innerHTML = `Error: ${error.message}`;
-                    dataStatus.className = 'error';
-                });
-        }
-        
-        // Update data status display
-        function updateDataStatus(count) {
-            dataStatus.innerHTML = `${count} records available`;
-            dataStatus.className = '';
-        }
-        
-        // Format numerical values with 1 decimal place
-        function formatNumber(value) {
-            if (value === null || value === undefined) return 'N/A';
-            return typeof value === 'number' ? value.toFixed(1) : value;
-        }
-        
-        // Update the data table
-        function updateTable(data) {
-            // Clear existing rows
-            dataTableBody.innerHTML = '';
-            
-            // Check if data is empty
-            if (!data || data.length === 0) {
-                const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="8">No data available. Add test data using the button above.</td>';
-                dataTableBody.appendChild(row);
+        // Update the table with current data
+        function updateTable() {
+            if (dataEntries.length === 0) {
+                dataBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No data available. Please connect to TTN.</td></tr>';
                 return;
             }
             
-            // Add rows for each data record
-            data.forEach(record => {
+            dataBody.innerHTML = '';
+            
+            // Sort by timestamp, newest first
+            const sortedData = [...dataEntries].sort((a, b) => {
+                return new Date(b.timestamp) - new Date(a.timestamp);
+            });
+            
+            // Only show the 50 most recent entries to avoid performance issues
+            const recentData = sortedData.slice(0, 50);
+            
+            recentData.forEach(entry => {
                 const row = document.createElement('tr');
                 
+                // Format the timestamp
+                const date = new Date(entry.timestamp);
+                const formattedDate = date.toLocaleString();
+                
                 row.innerHTML = `
-                    <td>${record.time}</td>
-                    <td>${record.device_id}</td>
-                    <td>${formatNumber(record.temperature)}</td>
-                    <td>${formatNumber(record.humidity)}</td>
-                    <td>${formatNumber(record.plantheight)}</td>
-                    <td>${formatNumber(record.moisture1)}</td>
-                    <td>${formatNumber(record.moisture2)}</td>
-                    <td>${formatNumber(record.moisture3)}</td>
+                    <td>${formattedDate}</td>
+                    <td>${entry.deviceId || 'N/A'}</td>
+                    <td>${entry.data1 !== undefined ? entry.data1 : 'N/A'}</td>
+                    <td>${entry.data2 !== undefined ? entry.data2 : 'N/A'}</td>
+                    <td>${entry.data3 !== undefined ? entry.data3 : 'N/A'}</td>
+                    <td>${entry.data4 !== undefined ? entry.data4 : 'N/A'}</td>
+                    <td>${entry.data5 !== undefined ? entry.data5 : 'N/A'}</td>
+                    <td>${entry.data6 !== undefined ? entry.data6 : 'N/A'}</td>
                 `;
                 
-                dataTableBody.appendChild(row);
+                dataBody.appendChild(row);
             });
-        }
-        
-        // Add test data via API
-        function injectTestData() {
-            dataStatus.innerHTML = '<div class="loading-spinner"></div><span>Adding test data...</span>';
-            dataStatus.className = 'loading';
             
-            fetch('/inject-test-data')
-                .then(response => response.json())
-                .then(result => {
-                    if (result.success) {
-                        refreshData(); // Refresh the data
-                    } else {
-                        dataStatus.innerHTML = `Error: ${result.error}`;
-                        dataStatus.className = 'error';
-                    }
-                })
-                .catch(error => {
-                    console.error('Error adding test data:', error);
-                    dataStatus.innerHTML = `Error: ${error.message}`;
-                    dataStatus.className = 'error';
-                });
+            dataCount.textContent = `(${dataEntries.length} records)`;
         }
         
-        // Update the last refresh time
-        function updateLastRefreshTime() {
-            const now = new Date();
-            lastUpdateElement.textContent = `Last updated: ${now.toLocaleTimeString()}`;
+        // Process an MQTT message
+        function processMessage(topic, message) {
+            try {
+                // Parse the message payload
+                const payload = JSON.parse(message.toString());
+                
+                // Extract device ID from the topic
+                // Topic format: v3/{app-id}@ttn/devices/{device-id}/up
+                const topicParts = topic.split('/');
+                const deviceId = topicParts[topicParts.length - 2];
+                
+                // Extract data from the payload
+                // IMPORTANT: You need to adjust these fields to match your actual TTN payload structure
+                const entry = {
+                    timestamp: payload.received_at || new Date().toISOString(),
+                    deviceId: deviceId,
+                    // Replace these with your actual field names from your TTN decoded payload
+                    data1: payload.uplink_message?.decoded_payload?.data1,
+                    data2: payload.uplink_message?.decoded_payload?.data2,
+                    data3: payload.uplink_message?.decoded_payload?.data3,
+                    data4: payload.uplink_message?.decoded_payload?.data4,
+                    data5: payload.uplink_message?.decoded_payload?.data5,
+                    data6: payload.uplink_message?.decoded_payload?.data6
+                };
+                
+                // Add to our data array
+                dataEntries.push(entry);
+                
+                // Update the table
+                updateTable();
+                
+                return true;
+            } catch (err) {
+                console.error("Error processing MQTT message:", err);
+                showNotification(`Error processing message: ${err.message}`, 'error');
+                return false;
+            }
         }
+        
+        // Connect to TTN
+        function connectToTTN() {
+            const appId = appIdInput.value.trim();
+            const apiKey = apiKeyInput.value.trim();
+            const region = regionSelect.value;
+            
+            if (!appId || !apiKey) {
+                showNotification('Please enter both Application ID and API Key', 'error');
+                return;
+            }
+            
+            // Update UI
+            statusIndicator.className = 'status-indicator connecting';
+            statusText.textContent = 'Connecting...';
+            connectBtn.disabled = true;
+            
+            // MQTT over WebSockets connection
+            const options = {
+                username: appId,  // Username is your APP ID
+                password: apiKey, // Password is your API key
+                clean: true,      // Non-persistent session
+                connectTimeout: 5000,
+                rejectUnauthorized: false
+            };
+            
+            try {
+                // Create MQTT client - WebSocket connection
+                const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+                const broker = `${protocol}://${region}:8883/mqtt`;  // WebSocket port
+                
+                // Connect to TTN MQTT broker
+                client = mqtt.connect(broker, options);
+                
+                // Set up event handlers
+                client.on('connect', () => {
+                    // Update UI
+                    statusIndicator.className = 'status-indicator connected';
+                    statusText.textContent = 'Connected to TTN';
+                    connectBtn.disabled = true;
+                    disconnectBtn.disabled = false;
+                    
+                    // Subscribe to uplinks from all devices in this application
+                    const topic = `v3/${appId}/devices/+/up`;
+                    client.subscribe(topic, (err) => {
+                        if (err) {
+                            showNotification(`Failed to subscribe: ${err.message}`, 'error');
+                            console.error('Subscription error:', err);
+                            disconnectFromTTN();
+                        } else {
+                            showNotification('Successfully connected to TTN and subscribed to device data', 'success');
+                        }
+                    });
+                });
+                
+                client.on('message', (topic, message) => {
+                    processMessage(topic, message);
+                });
+                
+                client.on('error', (err) => {
+                    console.error('MQTT Error:', err);
+                    showNotification(`Connection error: ${err.message}`, 'error');
+                    disconnectFromTTN();
+                });
+                
+                client.on('close', () => {
+                    statusIndicator.className = 'status-indicator disconnected';
+                    statusText.textContent = 'Disconnected';
+                    connectBtn.disabled = false;
+                    disconnectBtn.disabled = true;
+                });
+            } catch (error) {
+                showNotification(`Failed to connect: ${error.message}`, 'error');
+                console.error('Connection error:', error);
+                statusIndicator.className = 'status-indicator disconnected';
+                statusText.textContent = 'Disconnected';
+                connectBtn.disabled = false;
+            }
+        }
+        
+        // Disconnect from TTN
+        function disconnectFromTTN() {
+            if (client && client.connected) {
+                client.end();
+            }
+            
+            statusIndicator.className = 'status-indicator disconnected';
+            statusText.textContent = 'Disconnected';
+            connectBtn.disabled = false;
+            disconnectBtn.disabled = true;
+        }
+        
+        // Event listeners
+        connectBtn.addEventListener('click', connectToTTN);
+        
+        disconnectBtn.addEventListener('click', () => {
+            disconnectFromTTN();
+            showNotification('Disconnected from TTN', 'success');
+        });
+        
+        clearBtn.addEventListener('click', () => {
+            dataEntries = [];
+            updateTable();
+            dataCount.textContent = '(0 records)';
+            showNotification('Data cleared', 'success');
+        });
+        
+        // Initialize the UI
+        updateTable();
     </script>
 </body>
 </html>
