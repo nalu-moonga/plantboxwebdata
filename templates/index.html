@@ -13,12 +13,6 @@
             color: #333;
         }
         
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        
         header {
             background-color: #064e3b;
             color: white;
@@ -27,17 +21,36 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .plant-icon {
+            font-size: 1.8rem;
+            margin: 0 10px;
+        }
+        
         h1 {
             margin: 0;
+            font-size: 1.8rem;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
         }
         
         .status-bar {
             background-color: #e0f2f1;
             border-radius: 5px;
-            padding: 10px;
+            padding: 10px 15px;
             margin: 20px 0;
             display: flex;
             justify-content: space-between;
+            align-items: center;
         }
         
         .data-panel {
@@ -77,67 +90,105 @@
             font-style: italic;
             color: #666;
             text-align: right;
+            margin-top: 10px;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .button {
+            background-color: #064e3b;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            font-size: 14px;
         }
         
         .refresh-control {
             display: flex;
             align-items: center;
-            justify-content: flex-end;
-            margin-bottom: 10px;
+            margin-left: 15px;
         }
         
         .refresh-control select {
             margin-left: 10px;
             padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
         }
         
-        .status-indicator {
+        .loading-spinner {
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(0,0,0,0.1);
             border-radius: 50%;
-            margin-right: 5px;
+            border-top-color: #064e3b;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
         }
         
-        .status-connected {
-            background-color: #10b981;
+        @keyframes spin {
+            to { transform: rotate(360deg); }
         }
         
-        .status-disconnected {
-            background-color: #ef4444;
+        .loading {
+            display: flex;
+            align-items: center;
         }
         
         /* For mobile screens */
         @media (max-width: 768px) {
+            .status-bar {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            
+            .button-group {
+                margin-top: 10px;
+            }
+            
             table {
                 display: block;
                 overflow-x: auto;
-            }
-            
-            .status-bar {
-                flex-direction: column;
             }
         }
     </style>
 </head>
 <body>
     <header>
-        <div class="container">
-            <h1>🌱 Plant Box Data Dashboard 🌿</h1>
+        <div class="header-content">
+            <span class="plant-icon">🌱</span>
+            <h1>Plant Box Data Dashboard</h1>
+            <span class="plant-icon">🌿</span>
         </div>
     </header>
     
     <div class="container">
         <div class="status-bar">
-            <div id="connection-status">Loading data...</div>
-            <div class="refresh-control">
-                <label for="refresh-rate">Refresh every:</label>
-                <select id="refresh-rate">
-                    <option value="5000">5 seconds</option>
-                    <option value="10000" selected>10 seconds</option>
-                    <option value="30000">30 seconds</option>
-                    <option value="60000">1 minute</option>
-                </select>
+            <div id="data-status" class="loading">
+                <div class="loading-spinner"></div>
+                <span>Loading data...</span>
+            </div>
+            <div class="button-group">
+                <button onclick="injectTestData()" class="button">Add Test Data</button>
+                <button onclick="refreshData()" class="button">Refresh Data</button>
+                <div class="refresh-control">
+                    <label for="refresh-rate">Auto-refresh:</label>
+                    <select id="refresh-rate" onchange="setRefreshRate()">
+                        <option value="0">Off</option>
+                        <option value="5000">5 seconds</option>
+                        <option value="10000" selected>10 seconds</option>
+                        <option value="30000">30 seconds</option>
+                        <option value="60000">1 minute</option>
+                    </select>
+                </div>
             </div>
         </div>
         
@@ -164,65 +215,48 @@
     </div>
     
     <script>
-        // Configuration
-        let refreshInterval = 10000; // Default refresh rate in milliseconds
+        // Global variables
         let refreshTimer;
+        let refreshInterval = 10000; // Default refresh rate in milliseconds
         
         // DOM elements
+        const dataTable = document.getElementById('data-table');
         const dataTableBody = document.getElementById('data-body');
+        const dataStatus = document.getElementById('data-status');
         const lastUpdateElement = document.getElementById('last-update');
-        const connectionStatus = document.getElementById('connection-status');
-        const refreshRateSelect = document.getElementById('refresh-rate');
         
         // Initialize the page
-        document.addEventListener('DOMContentLoaded', () => {
-            // Set up refresh rate control
-            refreshRateSelect.addEventListener('change', (e) => {
-                refreshInterval = parseInt(e.target.value);
-                resetRefreshTimer();
-            });
-            
+        document.addEventListener('DOMContentLoaded', function() {
             // Load initial data
-            fetchData();
-            checkStatus();
+            refreshData();
             
-            // Start refresh timers
-            resetRefreshTimer();
-            // Check status more frequently
-            setInterval(checkStatus, 5000);
+            // Start refresh timer
+            setRefreshRate();
         });
         
-        // Reset the refresh timer
-        function resetRefreshTimer() {
+        // Set refresh rate based on dropdown
+        function setRefreshRate() {
+            const selectElement = document.getElementById('refresh-rate');
+            refreshInterval = parseInt(selectElement.value);
+            
+            // Clear existing timer
             if (refreshTimer) {
                 clearInterval(refreshTimer);
+                refreshTimer = null;
             }
-            refreshTimer = setInterval(fetchData, refreshInterval);
-        }
-        
-        // Check server status
-        function checkStatus() {
-            fetch('/status')
-                .then(response => response.json())
-                .then(status => {
-                    const statusClass = status.mqtt_connected ? 'status-connected' : 'status-disconnected';
-                    const statusText = status.mqtt_connected ? 'Connected to MQTT' : 'Disconnected from MQTT';
-                    
-                    connectionStatus.innerHTML = `
-                        <span class="status-indicator ${statusClass}"></span>
-                        ${statusText} - ${status.data_count} records available
-                    `;
-                })
-                .catch(error => {
-                    connectionStatus.innerHTML = `
-                        <span class="status-indicator status-disconnected"></span>
-                        Server error: ${error.message}
-                    `;
-                });
+            
+            // Start new timer if not set to "Off"
+            if (refreshInterval > 0) {
+                refreshTimer = setInterval(refreshData, refreshInterval);
+            }
         }
         
         // Fetch data from the API
-        function fetchData() {
+        function refreshData() {
+            // Show loading indicator
+            dataStatus.innerHTML = '<div class="loading-spinner"></div><span>Refreshing data...</span>';
+            dataStatus.className = 'loading';
+            
             fetch('/api/data')
                 .then(response => {
                     if (!response.ok) {
@@ -232,15 +266,26 @@
                 })
                 .then(data => {
                     updateTable(data);
+                    updateDataStatus(data.length);
                     updateLastRefreshTime();
                 })
                 .catch(error => {
                     console.error('Error fetching data:', error);
-                    connectionStatus.innerHTML = `
-                        <span class="status-indicator status-disconnected"></span>
-                        Data fetch error: ${error.message}
-                    `;
+                    dataStatus.innerHTML = `Error: ${error.message}`;
+                    dataStatus.className = 'error';
                 });
+        }
+        
+        // Update data status display
+        function updateDataStatus(count) {
+            dataStatus.innerHTML = `${count} records available`;
+            dataStatus.className = '';
+        }
+        
+        // Format numerical values with 1 decimal place
+        function formatNumber(value) {
+            if (value === null || value === undefined) return 'N/A';
+            return typeof value === 'number' ? value.toFixed(1) : value;
         }
         
         // Update the data table
@@ -248,30 +293,53 @@
             // Clear existing rows
             dataTableBody.innerHTML = '';
             
-            // Add new rows
-            if (data.length === 0) {
+            // Check if data is empty
+            if (!data || data.length === 0) {
                 const row = document.createElement('tr');
-                row.innerHTML = '<td colspan="8">No data available yet. Waiting for sensor readings...</td>';
+                row.innerHTML = '<td colspan="8">No data available. Add test data using the button above.</td>';
                 dataTableBody.appendChild(row);
-            } else {
-                data.forEach(record => {
-                    const row = document.createElement('tr');
-                    
-                    // Add cells for each column
-                    row.innerHTML = `
-                        <td>${record.time}</td>
-                        <td>${record.device_id}</td>
-                        <td>${record.temperature !== null ? record.temperature.toFixed(1) : 'N/A'}</td>
-                        <td>${record.humidity !== null ? record.humidity.toFixed(1) : 'N/A'}</td>
-                        <td>${record.plantheight !== null ? record.plantheight.toFixed(1) : 'N/A'}</td>
-                        <td>${record.moisture1 !== null ? record.moisture1 : 'N/A'}</td>
-                        <td>${record.moisture2 !== null ? record.moisture2 : 'N/A'}</td>
-                        <td>${record.moisture3 !== null ? record.moisture3 : 'N/A'}</td>
-                    `;
-                    
-                    dataTableBody.appendChild(row);
-                });
+                return;
             }
+            
+            // Add rows for each data record
+            data.forEach(record => {
+                const row = document.createElement('tr');
+                
+                row.innerHTML = `
+                    <td>${record.time}</td>
+                    <td>${record.device_id}</td>
+                    <td>${formatNumber(record.temperature)}</td>
+                    <td>${formatNumber(record.humidity)}</td>
+                    <td>${formatNumber(record.plantheight)}</td>
+                    <td>${formatNumber(record.moisture1)}</td>
+                    <td>${formatNumber(record.moisture2)}</td>
+                    <td>${formatNumber(record.moisture3)}</td>
+                `;
+                
+                dataTableBody.appendChild(row);
+            });
+        }
+        
+        // Add test data via API
+        function injectTestData() {
+            dataStatus.innerHTML = '<div class="loading-spinner"></div><span>Adding test data...</span>';
+            dataStatus.className = 'loading';
+            
+            fetch('/inject-test-data')
+                .then(response => response.json())
+                .then(result => {
+                    if (result.success) {
+                        refreshData(); // Refresh the data
+                    } else {
+                        dataStatus.innerHTML = `Error: ${result.error}`;
+                        dataStatus.className = 'error';
+                    }
+                })
+                .catch(error => {
+                    console.error('Error adding test data:', error);
+                    dataStatus.innerHTML = `Error: ${error.message}`;
+                    dataStatus.className = 'error';
+                });
         }
         
         // Update the last refresh time
